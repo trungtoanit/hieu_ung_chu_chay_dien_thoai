@@ -24,16 +24,35 @@
 // (nếu không có \n, câu dài sẽ tự ngắt dòng cho vừa màn hình).
 // Ghi "<3" để hiện trái tim.
 const MESSAGES = [
-  "Gửi em",
-  "Hôm nay là\nngày của em",
-  "Anh mong em\nluôn vui vẻ",
-  "Và luôn có\nmột người bên cạnh",
-  "Mà người đó\nlà anh được không...",
-  "Làm người yêu\nanh nhé",
+  "Em à…",
+  "Anh đã từng nghĩ rằng,\ngặp gỡ một người\nchỉ là chuyện tình cờ.",
+  "Cho đến khi em xuất hiện,\nanh mới hiểu rằng\ncó những cuộc gặp gỡ",
+  "khiến người ta muốn\ndành cả tương lai\nđể gìn giữ.",
+  "Giữa hàng triệu người\ntrên thế giới,\nanh lại gặp được em,",
+  "lại nhớ về em,\nlại mong được gặp em\nmỗi ngày.",
+  "Anh thích cảm giác\nđược nói chuyện với em,\nthích nhìn em cười,",
+  "thích cả những khoảnh khắc\nbình thường\nkhi hai chúng ta ở cạnh nhau.",
+  "Anh không biết tương lai\nsẽ như thế nào.",
+  "Nhưng nếu được lựa chọn,\nanh muốn trong những\nnăm tháng sau này,",
+  "người cùng anh ăn cơm,\ncùng anh đi dạo,",
+  "cùng anh chia sẻ\nnhững vui buồn,",
+  "sẽ là em.",
+  "Anh không hứa sẽ mang đến\ncho em một cuộc sống\nhoàn hảo.",
+  "Nhưng anh sẽ cố gắng\nđể em cảm thấy\nmình luôn được yêu thương,",
+  "được trân trọng\nvà được ưu tiên.",
+  "Anh không cần em\nlà người hoàn hảo nhất.",
+  "Bởi vì người anh thích\nlà em,",
+  "chứ không phải\nmột phiên bản hoàn hảo\nnào của em.",
+  "Thế giới này\nrộng lớn như vậy,",
+  "gặp được nhau\nđã là một điều may mắn.",
+  "Vậy nên, anh không muốn\nchúng ta chỉ dừng lại\nở hai chữ tình cờ.",
+  "Anh muốn viết tiếp\ncâu chuyện này,",
+  "không chỉ hôm nay,\nmà còn rất nhiều\nngày sau nữa.",
+  "Anh yêu em.",
   "<3",
 ];
 const RAIN_ONLY_SECONDS = 3;    // chỉ có mưa chữ trước khi hiện câu đầu
-const HOLD_SECONDS      = 3.2;  // thời gian giữ mỗi câu
+const HOLD_SECONDS      = 2.2;  // thời gian giữ tối thiểu mỗi câu (câu dài sẽ được giữ lâu hơn)
 const LOOP              = true; // hết thì lặp lại
 /* ================================================================== */
 
@@ -102,12 +121,18 @@ function wrap(text, size, maxW) {
 
 function textPoints(text) {
   const maxW = W * 0.9, maxH = H * 0.7;
-  let size = Math.min(W, H) * 0.2, lines;
-  for (; size > 14; size *= 0.93) {
-    lines = wrap(text, size, maxW);
-    octx.font = `900 ${size}px ${FONT}`;
-    const widest = Math.max(...lines.map(l => octx.measureText(l).width));
-    if (widest <= maxW && lines.length * size * 1.2 <= maxH) break;
+  // Giữ nguyên các dòng đã ngắt sẵn, thu nhỏ chữ cho vừa; chỉ tự ngắt khi chữ quá nhỏ
+  let lines = text.split("\n");
+  octx.font = `900 100px ${FONT}`;
+  const widest100 = Math.max(...lines.map(l => octx.measureText(l).width));
+  let size = Math.min(Math.min(W, H) * 0.2, maxW * 100 / widest100, maxH / (lines.length * 1.2));
+  if (size < Math.min(W, H) * 0.08) {
+    for (size = Math.min(W, H) * 0.2; size > 14; size *= 0.93) {
+      lines = wrap(text, size, maxW);
+      octx.font = `900 ${size}px ${FONT}`;
+      const widest = Math.max(...lines.map(l => octx.measureText(l).width));
+      if (widest <= maxW && lines.length * size * 1.2 <= maxH) break;
+    }
   }
   off.width = W; off.height = H;
   octx.clearRect(0, 0, W, H);
@@ -196,7 +221,7 @@ const sleep = s => new Promise(r => setTimeout(r, s * 1000));
   do {
     for (const m of messages) {
       setTargets(m);
-      await sleep(1.6 + HOLD_SECONDS);
+      await sleep(1.6 + HOLD_SECONDS + Math.min(m.length * 0.045, 3));
       if (m === messages[messages.length - 1] && !LOOP) return;
       scatter();
       await sleep(1.4);

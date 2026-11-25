@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Gửi em</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<canvas id="rain"></canvas>
+<canvas id="fx"></canvas>
+<script>
+/* ======================= SỬA NỘI DUNG Ở ĐÂY ======================= */
+// Mỗi phần tử là một câu, hiện lần lượt. Dùng \n để tự xuống dòng
+// (nếu không có \n, câu dài sẽ tự ngắt dòng cho vừa màn hình).
+// Ghi "<3" để hiện trái tim.
+const MESSAGES = [
+  "Gửi em",
+  "Hôm nay là\nngày của em",
+  "Anh mong em\nluôn vui vẻ",
+  "Và luôn có\nmột người bên cạnh",
+  "Mà người đó\nlà anh được không...",
+  "Làm người yêu\nanh nhé",
+  "<3",
+];
+const RAIN_ONLY_SECONDS = 3;    // chỉ có mưa chữ trước khi hiện câu đầu
+const HOLD_SECONDS      = 3.2;  // thời gian giữ mỗi câu
+const LOOP              = true; // hết thì lặp lại
+/* ================================================================== */
+
+// Có thể truyền nội dung qua link: ?msg=Câu 1|Câu 2|<3
+const q = new URLSearchParams(location.search).get("msg");
+const messages = q ? q.split("|").map(s => s.replace(/\\n/g, "\n")) : MESSAGES;
+
+const rain = document.getElementById("rain"), rctx = rain.getContext("2d");
+const fx = document.getElementById("fx"), ctx = fx.getContext("2d");
+let W, H, dpr, fontSize, cols, drops;
+
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  for (const c of [rain, fx]) { c.width = W * dpr; c.height = H * dpr; }
+  rctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  fontSize = W < 600 ? 13 : 16;
+  cols = Math.ceil(W / fontSize);
+  drops = Array.from({ length: cols }, () => Math.random() * -H / fontSize);
+  rctx.fillStyle = "#000"; rctx.fillRect(0, 0, W, H);
+  if (current) setTargets(current);
+}
+
+/* ---------- Mưa chữ 0/1 ---------- */
+function drawRain() {
+  rctx.fillStyle = "rgba(0,0,0,0.09)";
+  rctx.fillRect(0, 0, W, H);
+  rctx.font = `${fontSize}px "Courier New", monospace`;
+  for (let i = 0; i < cols; i++) {
+    const y = drops[i] * fontSize;
+    if (y > 0) {
+      rctx.fillStyle = Math.random() > 0.93 ? "#fff" : "rgba(220,220,220,0.7)";
+      rctx.fillText(Math.random() > 0.5 ? "1" : "0", i * fontSize, y);
+    }
+    if (y > H && Math.random() > 0.975) drops[i] = 0;
+    drops[i] += 1;
+  }
+}
+
+/* ---------- Chữ ghép từ hạt sáng ---------- */
+const off = document.createElement("canvas"), octx = off.getContext("2d", { willReadFrequently: true });
+const FONT = '"Arial Black", "Helvetica Neue", Arial, sans-serif';
+let particles = [], current = null;
+
+function wrap(text, size, maxW) {
+  octx.font = `900 ${size}px ${FONT}`;
+  const out = [];
+  for (const para of text.split("\n")) {
+    let line = "";
+    for (const w of para.split(" ")) {
+      const t = line ? line + " " + w : w;
+      if (line && octx.measureText(t).width > maxW) { out.push(line); line = w; } else line = t;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+function textPoints(text) {
+  const maxW = W * 0.9, maxH = H * 0.7;
+  let size = Math.min(W, H) * 0.2, lines;
+  for (; size > 14; size *= 0.93) {
+    lines = wrap(text, size, maxW);
+    octx.font = `900 ${size}px ${FONT}`;
+    const widest = Math.max(...lines.map(l => octx.measureText(l).width));
+    if (widest <= maxW && lines.length * size * 1.2 <= maxH) break;
+  }
+  off.width = W; off.height = H;
+  octx.clearRect(0, 0, W, H);
+  octx.fillStyle = "#fff"; octx.textAlign = "center"; octx.textBaseline = "middle";
+  octx.font = `900 ${size}px ${FONT}`;
+  const lh = size * 1.2, top = H / 2 - (lines.length - 1) * lh / 2;
+  lines.forEach((l, i) => octx.fillText(l, W / 2, top + i * lh));
+  const data = octx.getImageData(0, 0, W, H).data;
+  const step = Math.max(3, Math.round(size / 22));
+  const pts = [];
+  for (let y = 0; y < H; y += step)
+    for (let x = 0; x < W; x += step)
+      if (data[(y * W + x) * 4 + 3] > 128) pts.push([x, y]);
+  return pts;
+}
+
+function heartPoints() {
+  const pts = [], s = Math.min(W, H) / 38;
+  for (let i = 0; i < 1400; i++) {
+    const t = Math.random() * Math.PI * 2;
+    const r = Math.random() < 0.65 ? 1 : Math.sqrt(Math.random()); // viền dày, ruột thưa
+    const x = 16 * Math.sin(t) ** 3;
+    const y = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+    pts.push([W / 2 + x * s * r, H / 2 - y * s * r - s]);
+  }
+  return pts;
+}
+
+function setTargets(msg) {
+  current = msg;
+  const pts = msg.trim() === "<3" ? heartPoints() : textPoints(msg);
+  pts.sort(() => Math.random() - 0.5);
+  while (particles.length < pts.length) {
+    particles.push({ x: Math.random() * W, y: -20 - Math.random() * H, vx: 0, vy: 0, tx: 0, ty: 0, on: false, a: 0 });
+  }
+  particles.forEach((p, i) => {
+    if (i < pts.length) { p.tx = pts[i][0]; p.ty = pts[i][1]; p.on = true; }
+    else p.on = false;
+  });
+}
+
+function scatter() {
+  for (const p of particles) {
+    p.on = false;
+    const ang = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 6;
+    p.vx = Math.cos(ang) * sp; p.vy = Math.sin(ang) * sp - 1;
+  }
+}
+
+let beat = 0;
+function drawFx() {
+  ctx.clearRect(0, 0, W, H);
+  beat += 0.06;
+  const isHeart = current && current.trim() === "<3";
+  const pulse = isHeart ? 1 + Math.sin(beat * 2) * 0.04 : 1;
+  ctx.fillStyle = "#fff";
+  ctx.shadowColor = "rgba(255,255,255,0.9)";
+  ctx.shadowBlur = 8;
+  for (const p of particles) {
+    if (p.on) {
+      const tx = W / 2 + (p.tx - W / 2) * pulse, ty = H / 2 + (p.ty - H / 2) * pulse;
+      p.vx = (p.vx + (tx - p.x) * 0.012) * 0.86;
+      p.vy = (p.vy + (ty - p.y) * 0.012) * 0.86;
+      p.a = Math.min(1, p.a + 0.03);
+    } else {
+      p.vy += 0.05;
+      p.a = Math.max(0, p.a - 0.015);
+    }
+    p.x += p.vx; p.y += p.vy;
+    if (p.a <= 0) continue;
+    ctx.globalAlpha = p.a * (0.75 + Math.random() * 0.25);
+    ctx.fillRect(p.x - 1, p.y - 1, 2.2, 2.2);
+  }
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+}
+
+function loop() { drawRain(); drawFx(); requestAnimationFrame(loop); }
+addEventListener("resize", resize);
+resize();
+loop();
+
+/* ---------- Kịch bản: lần lượt từng câu ---------- */
+const sleep = s => new Promise(r => setTimeout(r, s * 1000));
+(async () => {
+  await sleep(RAIN_ONLY_SECONDS);
+  do {
+    for (const m of messages) {
+      setTargets(m);
+      await sleep(1.6 + HOLD_SECONDS);
+      if (m === messages[messages.length - 1] && !LOOP) return;
+      scatter();
+      await sleep(1.4);
+    }
+    current = null;
+    await sleep(1.5);
+  } while (LOOP);
+})();
+</script>
+</body>
+</html>

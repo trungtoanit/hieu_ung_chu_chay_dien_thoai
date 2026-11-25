@@ -103,7 +103,8 @@ function drawRain() {
 /* ---------- Chữ ghép từ hạt sáng ---------- */
 const off = document.createElement("canvas"), octx = off.getContext("2d", { willReadFrequently: true });
 const FONT = '"Arial Black", "Helvetica Neue", Arial, sans-serif';
-let particles = [], current = null;
+let particles = [], current = null, dot = 2.6, textBox = null, boxA = 0;
+const MAX_PARTICLES = 4500;
 
 function wrap(text, size, maxW) {
   octx.font = `900 ${size}px ${FONT}`;
@@ -141,7 +142,17 @@ function textPoints(text) {
   const lh = size * 1.2, top = H / 2 - (lines.length - 1) * lh / 2;
   lines.forEach((l, i) => octx.fillText(l, W / 2, top + i * lh));
   const data = octx.getImageData(0, 0, W, H).data;
-  const step = Math.max(3, Math.round(size / 22));
+  // Hạt dày đặc để chữ đậm, dễ đọc trên điện thoại; giới hạn số hạt cho mượt
+  let filled = 0, x0 = W, x1 = 0, y0 = H, y1 = 0;
+  for (let y = 0; y < H; y += 2)
+    for (let x = 0; x < W; x += 2)
+      if (data[(y * W + x) * 4 + 3] > 128) {
+        filled++;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+  const step = Math.max(2, Math.ceil(2 * Math.sqrt(filled / MAX_PARTICLES)));
+  dot = step * 0.92;
+  textBox = filled ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } : null;
   const pts = [];
   for (let y = 0; y < H; y += step)
     for (let x = 0; x < W; x += step)
@@ -163,7 +174,9 @@ function heartPoints() {
 
 function setTargets(msg) {
   current = msg;
-  const pts = msg.trim() === "<3" ? heartPoints() : textPoints(msg);
+  let pts;
+  if (msg.trim() === "<3") { pts = heartPoints(); dot = 3; textBox = null; }
+  else pts = textPoints(msg);
   pts.sort(() => Math.random() - 0.5);
   while (particles.length < pts.length) {
     particles.push({ x: Math.random() * W, y: -20 - Math.random() * H, vx: 0, vy: 0, tx: 0, ty: 0, on: false, a: 0 });
@@ -175,6 +188,7 @@ function setTargets(msg) {
 }
 
 function scatter() {
+  textBox = null;
   for (const p of particles) {
     p.on = false;
     const ang = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 6;
@@ -182,37 +196,64 @@ function scatter() {
   }
 }
 
-let beat = 0;
-function drawFx() {
+let beat = 0, lastBox = null;
+const solid = [];
+function drawFx(f = 1) {   // f = số khung 60fps đã trôi qua (máy chậm vẫn chạy đúng nhịp)
   ctx.clearRect(0, 0, W, H);
-  beat += 0.06;
+  beat += 0.06 * f;
   const isHeart = current && current.trim() === "<3";
   const pulse = isHeart ? 1 + Math.sin(beat * 2) * 0.04 : 1;
+  // Nền tối mờ sau chữ để mưa số không lẫn vào chữ
+  boxA += ((textBox ? 0.72 : 0) - boxA) * Math.min(1, 0.06 * f);
+  if (boxA > 0.01 && (textBox || lastBox)) {
+    const b = textBox || lastBox, pad = Math.min(W, H) * 0.06;
+    lastBox = b;
+    ctx.globalAlpha = boxA;
+    ctx.fillStyle = "#000";
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2, pad)
+                  : ctx.rect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
   ctx.fillStyle = "#fff";
-  ctx.shadowColor = "rgba(255,255,255,0.9)";
-  ctx.shadowBlur = 8;
+  const d = dot, h = d / 2, damp = Math.pow(0.82, f);
   for (const p of particles) {
     if (p.on) {
       const tx = W / 2 + (p.tx - W / 2) * pulse, ty = H / 2 + (p.ty - H / 2) * pulse;
-      p.vx = (p.vx + (tx - p.x) * 0.012) * 0.86;
-      p.vy = (p.vy + (ty - p.y) * 0.012) * 0.86;
-      p.a = Math.min(1, p.a + 0.03);
+      p.vx = (p.vx + (tx - p.x) * 0.02 * f) * damp;
+      p.vy = (p.vy + (ty - p.y) * 0.02 * f) * damp;
+      p.a = Math.min(1, p.a + 0.04 * f);
     } else {
-      p.vy += 0.05;
-      p.a = Math.max(0, p.a - 0.015);
+      p.vy += 0.05 * f;
+      p.a = Math.max(0, p.a - 0.02 * f);
     }
-    p.x += p.vx; p.y += p.vy;
+    p.x += p.vx * f; p.y += p.vy * f;
     if (p.a <= 0) continue;
-    ctx.globalAlpha = p.a * (0.75 + Math.random() * 0.25);
-    ctx.fillRect(p.x - 1, p.y - 1, 2.2, 2.2);
+    if (p.a >= 1) { solid.push(p); continue; }
+    ctx.globalAlpha = p.a;
+    ctx.fillRect(p.x - h, p.y - h, d, d);
   }
-  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  // Vẽ gộp các hạt đã hiện rõ (nhanh hơn nhiều trên điện thoại)
+  ctx.globalAlpha = 1;
+  ctx.beginPath();
+  for (const p of solid) ctx.rect(p.x - h, p.y - h, d, d);
+  ctx.fill();
+  solid.length = 0;
 }
 
-function loop() { drawRain(); drawFx(); requestAnimationFrame(loop); }
+let lastT = 0, rainAcc = 0;
+function loop(t) {
+  const dt = lastT ? Math.min(t - lastT, 100) : 16.7;
+  lastT = t;
+  rainAcc += dt;
+  if (rainAcc >= 45) { drawRain(); rainAcc = 0; }   // mưa số không cần 60fps
+  drawFx(dt / 16.7);
+  requestAnimationFrame(loop);
+}
 addEventListener("resize", resize);
 resize();
-loop();
+requestAnimationFrame(loop);
 
 /* ---------- Kịch bản: lần lượt từng câu ---------- */
 const sleep = s => new Promise(r => setTimeout(r, s * 1000));
